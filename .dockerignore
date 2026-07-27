@@ -1,0 +1,14 @@
+.git
+.gitignore
+venv/
+__pycache__/
+backend/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+uploads/*
+!uploads/.gitkeep
+outputs/*
+!outputs/.gitkeep
+.DS_Store

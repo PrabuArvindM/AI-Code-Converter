@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyMorph AI - Multi-Language Python Code Converter & Live Execution</title>
+    <meta name="description" content="Convert Python source code to Java, C, C++, Embedded C, and Swift powered by AI & Morpher Engine. Run Python and converted target code live. Created by Prabu Arvind M.">
+    
+    <!-- Modern Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navbar -->
+        <header class="navbar">
+            <div class="nav-brand">
+                <div class="logo-icon">
+                    <i class="fa-solid fa-code-compare"></i>
+                </div>
+                <div class="brand-text">
+                    <span class="app-title">PyMorph <span class="accent-text">AI</span></span>
+                    <span class="author-tag"><i class="fa-solid fa-code"></i> Created By: <strong>Prabu Arvind M</strong></span>
+                </div>
+            </div>
+
+            <div class="nav-actions">
+                <button id="settingsBtn" class="nav-btn" title="AI Provider & API Key Settings">
+                    <i class="fa-solid fa-gear"></i>
+                    <span>AI Settings</span>
+                </button>
+                <button id="themeToggleBtn" class="nav-btn icon-btn" title="Toggle Glass/Dark Theme">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+                <a href="https://github.com" target="_blank" class="nav-btn github-btn" title="GitHub Repository">
+                    <i class="fa-brands fa-github"></i>
+                    <span>GitHub</span>
+                </a>
+            </div>
+        </header>
+
+        <!-- Command & Action Toolbar -->
+        <section class="toolbar">
+            <div class="toolbar-group left-controls">
+                <button id="runBtn" class="action-btn run-btn" title="Execute Python script">
+                    <i class="fa-solid fa-play"></i>
+                    <span>Run Python</span>
+                </button>
+                
+                <div class="divider"></div>
+
+                <button id="openFileBtn" class="action-btn secondary-btn" title="Open .py file">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <span>Open</span>
+                </button>
+                <input type="file" id="fileInput" accept=".py,.txt" style="display: none;">
+
+                <button id="saveFileBtn" class="action-btn secondary-btn" title="Save Python code">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span>Save</span>
+                </button>
+
+                <button id="clearPyBtn" class="action-btn secondary-btn" title="Clear Python editor">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>Clear</span>
+                </button>
+            </div>
+
+            <div class="toolbar-group convert-controls">
+                <div class="lang-selector-wrapper">
+                    <label for="targetLangSelect"><i class="fa-solid fa-language"></i> Target:</label>
+                    <select id="targetLangSelect" class="lang-dropdown">
+                        <option value="java" selected>Java (.java)</option>
+                        <option value="cpp">C++ (.cpp)</option>
+                        <option value="c">C (.c)</option>
+                        <option value="embedded_c">Embedded C (.c)</option>
+                        <option value="swift">Swift (.swift)</option>
+                    </select>
+                </div>
+
+                <button id="convertBtn" class="action-btn convert-btn" title="Convert Python using AI & Morpher Engine">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    <span>Convert Code</span>
+                </button>
+            </div>
+
+            <div class="toolbar-group right-controls">
+                <button id="copyCodeBtn" class="action-btn secondary-btn" title="Copy converted code">
+                    <i class="fa-solid fa-copy"></i>
+                    <span>Copy</span>
+                </button>
+
+                <button id="downloadBtn" class="action-btn download-btn" title="Download converted file">
+                    <i class="fa-solid fa-download"></i>
+                    <span>Download</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Dual Editor Main Workspace -->
+        <main class="editor-workspace">
+            <!-- Left Pane: Python Source Editor -->
+            <div class="editor-pane left-pane">
+                <div class="pane-header">
+                    <div class="pane-title">
+                        <i class="fa-brands fa-python python-icon"></i>
+                        <span>Python Source Code</span>
+                    </div>
+                    <div class="pane-badge">
+                        <span id="pyLinesCount">1 lines</span>
+                    </div>
+                </div>
+                <div id="pythonEditor" class="monaco-container"></div>
+            </div>
+
+            <!-- Resizer Splitter -->
+            <div class="gutter" id="workspaceSplitter"></div>
+
+            <!-- Right Pane: Converted Target Code Editor -->
+            <div class="editor-pane right-pane">
+                <div class="pane-header">
+                    <div class="pane-title">
+                        <i class="fa-solid fa-code code-icon" id="targetLangIcon"></i>
+                        <span id="targetPaneTitle">Converted Code (Java)</span>
+                    </div>
+                    <div class="header-action-group">
+                        <button id="runTargetBtn" class="action-btn target-run-btn" title="Compile and Run Converted Target Code">
+                            <i class="fa-solid fa-play"></i>
+                            <span>Run Converted</span>
+                        </button>
+                        <div class="pane-badge target-badge">
+                            <span id="aiStatusBadge"><i class="fa-solid fa-sparkles"></i> Ready (Auto / Free Morpher)</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="convertedEditor" class="monaco-container"></div>
+            </div>
+        </main>
+
+        <!-- Bottom Panel: Console / Terminal Output -->
+        <section class="console-panel" id="consolePanel">
+            <div class="console-header">
+                <div class="console-title">
+                    <i class="fa-solid fa-terminal"></i>
+                    <span>Output Terminal</span>
+                    <span id="consoleSourceTag" class="console-source-badge">Python</span>
+                    <span id="execStatus" class="status-indicator idle">Idle</span>
+                    <span id="execTime" class="exec-time-tag">0 ms</span>
+                </div>
+                <div class="console-actions">
+                    <button id="clearConsoleBtn" class="icon-btn" title="Clear Terminal">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                    <button id="toggleConsoleBtn" class="icon-btn" title="Collapse Panel">
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="console-body">
+                <pre id="consoleOutput" class="console-pre">Click "Run Python" or "Run Converted" to execute code and view live output here...</pre>
+            </div>
+        </section>
+    </div>
+
+    <!-- AI Settings Modal -->
+    <div id="settingsModal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fa-solid fa-sliders"></i>
+                    <span>AI Provider & Key Settings</span>
+                </div>
+                <button id="closeModalBtn" class="icon-btn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-item">
+                    <label for="providerSelect">Select AI Conversion Engine:</label>
+                    <select id="providerSelect" class="settings-input">
+                        <option value="auto" selected>Auto (Free OpenRouter -> Gemini -> Offline Morpher)</option>
+                        <option value="openrouter">OpenRouter Free Models (Qwen 2.5 / DeepSeek / Llama 3)</option>
+                        <option value="offline">Offline Morpher (No API Key / Instant Rule Engine)</option>
+                        <option value="gemini">Google Gemini AI</option>
+                        <option value="groq">Groq Llama 3.3</option>
+                    </select>
+                    <small class="setting-desc">Auto & Offline modes work out-of-the-box without requiring any API key!</small>
+                </div>
+
+                <div class="setting-item">
+                    <label for="customApiKey">Custom API Key (Optional):</label>
+                    <input type="password" id="customApiKey" class="settings-input" placeholder="Paste your API key here (Optional)...">
+                    <small class="setting-desc">Stored safely in your browser local storage.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="saveSettingsBtn" class="action-btn convert-btn"><i class="fa-solid fa-check"></i> Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Monaco Editor Loader Script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+
+    <!-- Custom Script -->
+    <script src="/static/script.js"></script>
+</body>
+</html>
