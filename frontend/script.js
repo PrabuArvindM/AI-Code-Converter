@@ -228,7 +228,7 @@ function setupEventListeners() {
     });
 }
 
-// Execute Python Code via Interactive WebSocket / HTTP API
+/// Execute Python Code via Backend API
 async function runPythonCode() {
     const pythonCode = pyEditor.getValue();
     if (!pythonCode.trim()) {
@@ -239,61 +239,17 @@ async function runPythonCode() {
     const consoleOutput = document.getElementById("consoleOutput");
     const sourceTag = document.getElementById("consoleSourceTag");
     const stdinInput = document.getElementById("stdinInput");
+    const stdinValue = stdinInput ? stdinInput.value : "";
     
     sourceTag.innerText = "Python";
     sourceTag.style.background = "rgba(0, 122, 204, 0.25)";
     sourceTag.style.borderColor = "rgba(0, 122, 204, 0.4)";
 
-    consoleOutput.innerText = "";
+    consoleOutput.innerText = "Executing Python script...\n";
     consoleOutput.className = "console-pre";
     updateConsoleStatus("running", 0);
 
-    if (activeWS) {
-        try { activeWS.close(); } catch(e){}
-    }
-
-    const wsUrl = getWsUrl("ws/run", { code: pythonCode });
-
     try {
-        const ws = new WebSocket(wsUrl);
-        activeWS = ws;
-
-        ws.onopen = () => {
-            if (stdinInput) stdinInput.focus();
-        };
-
-        ws.onmessage = (event) => {
-            try {
-                const msg = JSON.parse(event.data);
-                if (msg.type === "stdout") {
-                    consoleOutput.innerText += msg.data;
-                    consoleOutput.scrollTop = consoleOutput.scrollHeight;
-                } else if (msg.type === "exit") {
-                    updateConsoleStatus(msg.code === 0 ? "success" : "error", msg.execution_time_ms);
-                    showToast(msg.code === 0 ? "Python execution completed" : "Python execution failed", msg.code === 0 ? "success" : "error");
-                } else if (msg.type === "error") {
-                    consoleOutput.innerText += `\n[Error]: ${msg.data}`;
-                    updateConsoleStatus("error", 0);
-                }
-            } catch(e) {
-                consoleOutput.innerText += event.data;
-            }
-        };
-
-        ws.onerror = () => {
-            runPythonCodeHTTP(pythonCode);
-        };
-    } catch(e) {
-        runPythonCodeHTTP(pythonCode);
-    }
-}
-
-async function runPythonCodeHTTP(pythonCode) {
-    const consoleOutput = document.getElementById("consoleOutput");
-    try {
-        const stdinInput = document.getElementById("stdinInput");
-        const stdinValue = stdinInput ? stdinInput.value : "";
-
         const response = await fetch(getApiUrl("run"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -322,7 +278,7 @@ async function runPythonCodeHTTP(pythonCode) {
     }
 }
 
-// Execute Converted Target Code via Interactive WebSocket / HTTP API
+// Execute Converted Target Code via Backend API
 async function runTargetCode() {
     const code = targetEditor.getValue();
     if (!code.trim() || code.startsWith("// Click 'Convert")) {
@@ -334,62 +290,17 @@ async function runTargetCode() {
     const consoleOutput = document.getElementById("consoleOutput");
     const sourceTag = document.getElementById("consoleSourceTag");
     const stdinInput = document.getElementById("stdinInput");
+    const stdinValue = stdinInput ? stdinInput.value : "";
 
     sourceTag.innerText = langConfig.label.replace('Converted Code (', '').replace(')', '');
     sourceTag.style.background = "rgba(168, 85, 247, 0.25)";
     sourceTag.style.borderColor = "rgba(168, 85, 247, 0.4)";
 
-    consoleOutput.innerText = "";
+    consoleOutput.innerText = `Compiling and executing ${sourceTag.innerText} code...\n`;
     consoleOutput.className = "console-pre";
     updateConsoleStatus("running", 0);
 
-    if (activeWS) {
-        try { activeWS.close(); } catch(e){}
-    }
-
-    const wsUrl = getWsUrl("ws/run-target", { code: code, language: currentTargetLang });
-
     try {
-        const ws = new WebSocket(wsUrl);
-        activeWS = ws;
-
-        ws.onopen = () => {
-            if (stdinInput) stdinInput.focus();
-        };
-
-        ws.onmessage = (event) => {
-            try {
-                const msg = JSON.parse(event.data);
-                if (msg.type === "stdout") {
-                    consoleOutput.innerText += msg.data;
-                    consoleOutput.scrollTop = consoleOutput.scrollHeight;
-                } else if (msg.type === "exit") {
-                    updateConsoleStatus(msg.code === 0 ? "success" : "error", msg.execution_time_ms);
-                    showToast(msg.code === 0 ? `${sourceTag.innerText} executed successfully!` : `${sourceTag.innerText} execution failed`, msg.code === 0 ? "success" : "error");
-                } else if (msg.type === "error") {
-                    consoleOutput.innerText += `\n[Error]: ${msg.data}`;
-                    updateConsoleStatus("error", 0);
-                }
-            } catch(e) {
-                consoleOutput.innerText += event.data;
-            }
-        };
-
-        ws.onerror = () => {
-            runTargetCodeHTTP(code, currentTargetLang);
-        };
-    } catch(e) {
-        runTargetCodeHTTP(code, currentTargetLang);
-    }
-}
-
-async function runTargetCodeHTTP(code, currentTargetLang) {
-    const consoleOutput = document.getElementById("consoleOutput");
-    const sourceTag = document.getElementById("consoleSourceTag");
-    try {
-        const stdinInput = document.getElementById("stdinInput");
-        const stdinValue = stdinInput ? stdinInput.value : "";
-
         const response = await fetch(getApiUrl("run-target"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -399,7 +310,6 @@ async function runTargetCodeHTTP(code, currentTargetLang) {
                 inputs: stdinValue
             })
         });
-
 
         const data = await response.json();
 
@@ -426,6 +336,7 @@ async function runTargetCodeHTTP(code, currentTargetLang) {
         showToast("Backend connection failed", "error");
     }
 }
+
 
 // Convert Python Code via Multi-Provider API / Dynamic Morpher Engine
 async function convertPythonCode() {
