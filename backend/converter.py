@@ -211,12 +211,14 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
                     current_lines.append(f'{raw_indent}std::cout << {cpp_str} << std::endl;')
                 elif lang_key in ["c", "embedded_c"]:
                     raw_str = re.sub(r"int\(([a-zA-Z0-9_]+)\)", r"atoi(\1)", raw_str)
-                    fmt_spec = "%s" if any(v in raw_str for v in ["n", "str", "name", "text", "val", "input", "line"]) else "%d"
+                    is_int_expr = "atoi(" in raw_str or "+" in raw_str or "-" in raw_str or "*" in raw_str or "/" in raw_str
+                    fmt_spec = "%d" if is_int_expr else ("%s" if any(v in raw_str for v in ["n", "str", "name", "text", "val", "line"]) else "%d")
                     c_str = re.sub(r"\{([^}]+)\}", fmt_spec, raw_str)
                     vars_found = re.findall(r"\{([^}]+)\}", raw_str)
                     vars_str = ", ".join(vars_found)
                     vars_prefix = f", {vars_str}" if vars_str else ""
                     current_lines.append(f'{raw_indent}printf("{c_str}\\n"{vars_prefix});')
+
                 elif lang_key == "swift":
                     raw_str = re.sub(r"int\(([a-zA-Z0-9_]+)\)", r"(Int(\1) ?? 0)", raw_str)
                     swift_str = re.sub(r"\{([^}]+)\}", r"\\(\1)", raw_str)
