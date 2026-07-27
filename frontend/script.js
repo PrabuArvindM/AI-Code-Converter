@@ -228,13 +228,24 @@ function setupEventListeners() {
     });
 }
 
-/// Execute Python Code via Backend API
+function ensureConsoleExpanded() {
+    const consolePanel = document.getElementById("consolePanel");
+    if (consolePanel && consolePanel.classList.contains("collapsed")) {
+        consolePanel.classList.remove("collapsed");
+        const icon = document.getElementById("toggleConsoleBtn")?.querySelector("i");
+        if (icon) icon.className = "fa-solid fa-chevron-down";
+    }
+}
+
+// Execute Python Code via Backend API
 async function runPythonCode() {
     const pythonCode = pyEditor.getValue();
     if (!pythonCode.trim()) {
         showToast("Python code area is empty!", "error");
         return;
     }
+
+    ensureConsoleExpanded();
 
     const consoleOutput = document.getElementById("consoleOutput");
     const sourceTag = document.getElementById("consoleSourceTag");
@@ -286,6 +297,8 @@ async function runTargetCode() {
         return;
     }
 
+    ensureConsoleExpanded();
+
     const langConfig = LANG_MAP[currentTargetLang] || LANG_MAP["java"];
     const consoleOutput = document.getElementById("consoleOutput");
     const sourceTag = document.getElementById("consoleSourceTag");
@@ -336,6 +349,7 @@ async function runTargetCode() {
         showToast("Backend connection failed", "error");
     }
 }
+
 
 
 // Convert Python Code via Multi-Provider API / Dynamic Morpher Engine
