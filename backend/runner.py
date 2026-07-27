@@ -33,11 +33,14 @@ def transpile_swift_to_py(swift_code: str) -> str:
         if stripped.startswith("int main(") or stripped.startswith("void main(") or stripped.startswith("public static void main") or stripped == "return 0;":
             continue
             
-        line_clean = line
+        line_clean = line.strip()
         
+        # Strip leading } or {
+        if line_clean.startswith("}"):
+            line_clean = line_clean[1:].strip()
+
         # Remove let / var / type declarations
         line_clean = re.sub(r"\b(let|var|int|char|double|float|long|short)\s+", "", line_clean)
-
 
         # Convert Swift readLine() / readLine()! / readLine() ?? "" -> input()
         line_clean = re.sub(r"readLine\(\s*\)(?:\s*!\s*)?(?:\s*\?\?\s*\"[^\"]*\")?", "input()", line_clean)
@@ -48,7 +51,6 @@ def transpile_swift_to_py(swift_code: str) -> str:
         # Strip trailing ! or ?? default value
         line_clean = re.sub(r"\)\s*!\s*", ")", line_clean)
         line_clean = re.sub(r"\)\s*\?\?\s*[a-zA-Z0-9_\"\']+", ")", line_clean)
-
 
         # Convert func: func name(_ param: Type) -> RetType {
         func_match = re.search(r"\bfunc\s+([a-zA-Z0-9_]+)\((.*?)\)", line_clean)
@@ -77,26 +79,37 @@ def transpile_swift_to_py(swift_code: str) -> str:
 
         # Convert seq.count -> len(seq)
         line_clean = re.sub(r"([a-zA-Z0-9_]+)\.count", r"len(\1)", line_clean)
+        line_clean = re.sub(r"([a-zA-Z0-9_]+)\[\s*len\(\1\)\s*-\s*1\s*\]", r"\1[-1]", line_clean)
+        line_clean = re.sub(r"([a-zA-Z0-9_]+)\[\s*len\(\1\)\s*-\s*2\s*\]", r"\1[-2]", line_clean)
+
+        # Convert Swift enumerated() loop: for (idx, num) in result.enumerated() {
+        enum_match = re.search(r"for\s*\((.*?)\)\s*in\s*([a-zA-Z0-9_]+)\.enumerated\(\)", line_clean)
+        if enum_match:
+            vars_part, arr_part = enum_match.groups()
+            line_clean = f"{raw_indent}for {vars_part} in enumerate({arr_part}):"
+            py_lines.append(line_clean)
+            continue
 
         # Convert loops & conditionals
-        if line_clean.strip().startswith("if "):
-            cond = line_clean.strip()[3:].rstrip("{").strip()
+        if line_clean.startswith("if "):
+            cond = line_clean[3:].rstrip("{").strip()
             line_clean = f"{raw_indent}if {cond}:"
-        elif line_clean.strip().startswith("while "):
-            cond = line_clean.strip()[6:].rstrip("{").strip()
+        elif line_clean.startswith("while "):
+            cond = line_clean[6:].rstrip("{").strip()
             line_clean = f"{raw_indent}while {cond}:"
-        elif line_clean.strip().startswith("else if "):
-            cond = line_clean.strip()[8:].rstrip("{").strip()
+        elif line_clean.startswith("else if "):
+            cond = line_clean[8:].rstrip("{").strip()
             line_clean = f"{raw_indent}elif {cond}:"
-        elif line_clean.strip() == "else" or line_clean.strip() == "else {":
+        elif line_clean == "else" or line_clean == "else {":
             line_clean = f"{raw_indent}else:"
         else:
-            line_clean = line_clean.rstrip("{").rstrip("}").rstrip()
+            line_clean = raw_indent + line_clean.rstrip(";").rstrip("{").rstrip("}").strip()
         
         if line_clean and line_clean.strip() != "}" and line_clean.strip() != "{":
             py_lines.append(line_clean)
             
     return "\n".join(py_lines)
+
 
 
 def find_python_executable() -> str:
