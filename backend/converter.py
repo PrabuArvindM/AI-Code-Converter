@@ -65,9 +65,10 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
             current_lines.append(f"{raw_indent}// {stripped[1:].strip()}")
             continue
 
-        # Strip Python main guard
-        if "if __name__ ==" in stripped or "if __name__==" in stripped:
+        # Strip Python main guard & recursive main() invocation
+        if "if __name__ ==" in stripped or "if __name__==" in stripped or stripped in ["main()", "main();"]:
             continue
+
 
         is_elif_else = stripped.startswith("elif ") or stripped == "else:" or stripped.startswith("else:")
         # Pop indent stack and append closing braces
@@ -440,7 +441,7 @@ async def convert_with_gemini(python_code: str, target_language: str, api_key: s
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
-        for model in ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]:
+        for model in ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]:
             try:
                 response = client.models.generate_content(
                     model=model,
@@ -453,30 +454,32 @@ async def convert_with_gemini(python_code: str, target_language: str, api_key: s
                 if response and response.text:
                     return response.text
             except Exception as e:
-                print(f"[Gemini API Error for {model}]:", e)
+                print(f"[google.genai Error for {model}]:", e)
                 continue
 
+    except Exception as exc:
+        print("[google.genai Client Error]:", exc)
 
-
-    except ImportError:
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            for model_name in ["gemini-1.5-flash", "gemini-pro"]:
-                try:
-                    model = genai.GenerativeModel(
-                        model_name=model_name,
-                        system_instruction=SYSTEM_INSTRUCTION
-                    )
-                    response = model.generate_content(user_prompt, generation_config={"temperature": 0.1})
-                    if response and response.text:
-                        return response.text
-                except Exception:
-                    continue
-        except ImportError:
-            pass
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        for model_name in ["gemini-1.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-pro"]:
+            try:
+                model = genai.GenerativeModel(
+                    model_name=model_name,
+                    system_instruction=SYSTEM_INSTRUCTION
+                )
+                response = model.generate_content(user_prompt, generation_config={"temperature": 0.1})
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                print(f"[google.generativeai Error for {model_name}]:", e)
+                continue
+    except Exception as exc:
+        print("[google.generativeai Client Error]:", exc)
 
     return None
+
 
 
 async def convert_code(
