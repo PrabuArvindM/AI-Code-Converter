@@ -27,13 +27,17 @@ def transpile_swift_to_py(swift_code: str) -> str:
         stripped = line.strip()
         raw_indent = line[:len(line) - len(line.lstrip())]
         
-        if not stripped or stripped.startswith("import ") or stripped.startswith("//") or stripped.startswith("/*"):
+        if not stripped or stripped.startswith("import ") or stripped.startswith("#include") or stripped.startswith("#define") or stripped.startswith("using ") or stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
+            continue
+
+        if stripped.startswith("int main(") or stripped.startswith("void main(") or stripped.startswith("public static void main") or stripped == "return 0;":
             continue
             
         line_clean = line
         
-        # Remove let / var
-        line_clean = re.sub(r"\b(let|var)\s+", "", line_clean)
+        # Remove let / var / type declarations
+        line_clean = re.sub(r"\b(let|var|int|char|double|float|long|short)\s+", "", line_clean)
+
 
         # Convert Swift readLine() / readLine()! / readLine() ?? "" -> input()
         line_clean = re.sub(r"readLine\(\s*\)(?:\s*!\s*)?(?:\s*\?\?\s*\"[^\"]*\")?", "input()", line_clean)

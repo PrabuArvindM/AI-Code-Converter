@@ -173,7 +173,13 @@ function setupEventListeners() {
         
         const iconElem = document.getElementById("targetLangIcon");
         iconElem.className = `fa-solid ${config.icon} code-icon`;
+
+        // Automatically update target code when changing target language selection
+        if (pyEditor.getValue().trim()) {
+            convertPythonCode();
+        }
     });
+
 
     // Copy Code Button
     document.getElementById("copyCodeBtn").addEventListener("click", copyConvertedCode);
