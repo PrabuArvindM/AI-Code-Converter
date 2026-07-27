@@ -233,10 +233,13 @@ async function runPythonCode() {
     updateConsoleStatus("running", 0);
 
     try {
+        const stdinInput = document.getElementById("stdinInput");
+        const stdinValue = stdinInput ? stdinInput.value : "";
+
         const response = await fetch(getApiUrl("run"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: pythonCode })
+            body: JSON.stringify({ code: pythonCode, inputs: stdinValue })
         });
 
         const data = await response.json();
@@ -282,14 +285,19 @@ async function runTargetCode() {
     updateConsoleStatus("running", 0);
 
     try {
+        const stdinInput = document.getElementById("stdinInput");
+        const stdinValue = stdinInput ? stdinInput.value : "";
+
         const response = await fetch(getApiUrl("run-target"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 code: code,
-                language: currentTargetLang
+                language: currentTargetLang,
+                inputs: stdinValue
             })
         });
+
 
         const data = await response.json();
 

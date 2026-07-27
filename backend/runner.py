@@ -11,7 +11,7 @@ import tempfile
 import asyncio
 import re
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from backend.config import settings
 
 def transpile_swift_to_py(swift_code: str) -> str:
@@ -96,9 +96,9 @@ def find_python_executable() -> str:
         
     return "python3"
 
-async def execute_python_code(code: str, timeout: float = None) -> Dict[str, Any]:
+async def execute_python_code(code: str, inputs: Optional[str] = "", timeout: float = None) -> Dict[str, Any]:
     """
-    Executes Python source code safely in an isolated sub-process with timeout safeguards.
+    Executes Python source code safely in an isolated sub-process with timeout safeguards and stdin support.
     Returns stdout, stderr, execution duration, and exit status.
     """
     if timeout is None:
@@ -128,19 +128,25 @@ async def execute_python_code(code: str, timeout: float = None) -> Dict[str, Any
             py_exe,
             "-u",
             str(temp_script_path),
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(settings.UPLOADS_DIR)
         )
 
+        input_bytes = (inputs or "").encode("utf-8")
         try:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), 
+                proc.communicate(input=input_bytes), 
                 timeout=timeout
             )
             stdout_data = stdout_bytes.decode("utf-8", errors="replace")
             stderr_data = stderr_bytes.decode("utf-8", errors="replace")
             exit_code = proc.returncode
+
+            if "EOFError" in stderr_data:
+                stderr_data += "\n💡 [PyMorph Input Tip]: Your code uses input(). Please enter test values in the 'Program Input (stdin)' box below the editor!"
+
         except asyncio.TimeoutError:
             is_timeout = True
             try:
@@ -150,6 +156,7 @@ async def execute_python_code(code: str, timeout: float = None) -> Dict[str, Any
                 pass
             stderr_data = f"Execution Timed Out after {timeout} seconds. Process killed to preserve system resources."
             exit_code = -1
+
 
     except Exception as e:
         stderr_data = f"Execution Error: {str(e)}"
@@ -199,9 +206,9 @@ async def check_java_jdk_available() -> bool:
         return False
 
 
-async def execute_target_code(code: str, language: str, timeout: float = None) -> Dict[str, Any]:
+async def execute_target_code(code: str, language: str, inputs: Optional[str] = "", timeout: float = None) -> Dict[str, Any]:
     """
-    Compiles and executes converted target language code (Java, C, C++, Embedded C, Swift).
+    Compiles and executes converted target language code (Java, C, C++, Embedded C, Swift) with stdin input support.
     """
     if timeout is None:
         timeout = settings.MAX_EXECUTION_TIMEOUT
@@ -214,6 +221,7 @@ async def execute_target_code(code: str, language: str, timeout: float = None) -
     stderr_data = ""
     exit_code = 0
     toolchain = ""
+    input_bytes = (inputs or "").encode("utf-8")
 
     try:
         # 1. JAVA EXECUTION
@@ -277,11 +285,12 @@ async def execute_target_code(code: str, language: str, timeout: float = None) -
 
                 run_proc = await asyncio.create_subprocess_exec(
                     java_bin, main_class,
+                    stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(temp_dir)
                 )
-                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(), timeout=timeout)
+                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(input=input_bytes), timeout=timeout)
                 stdout_data = out_bytes.decode("utf-8", errors="replace")
                 stderr_data = err_bytes.decode("utf-8", errors="replace")
                 exit_code = run_proc.returncode
@@ -289,11 +298,12 @@ async def execute_target_code(code: str, language: str, timeout: float = None) -
             elif java_bin:
                 run_proc = await asyncio.create_subprocess_exec(
                     java_bin, str(source_path),
+                    stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(temp_dir)
                 )
-                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(), timeout=timeout)
+                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(input=input_bytes), timeout=timeout)
                 stdout_data = out_bytes.decode("utf-8", errors="replace")
                 stderr_data = err_bytes.decode("utf-8", errors="replace")
                 exit_code = run_proc.returncode
@@ -353,11 +363,12 @@ async def execute_target_code(code: str, language: str, timeout: float = None) -
 
                 run_proc = await asyncio.create_subprocess_exec(
                     str(binary_path),
+                    stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(temp_dir)
                 )
-                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(), timeout=timeout)
+                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(input=input_bytes), timeout=timeout)
                 stdout_data = out_bytes.decode("utf-8", errors="replace")
                 stderr_data = err_bytes.decode("utf-8", errors="replace")
                 exit_code = run_proc.returncode
@@ -392,11 +403,12 @@ async def execute_target_code(code: str, language: str, timeout: float = None) -
 
                 run_proc = await asyncio.create_subprocess_exec(
                     str(binary_path),
+                    stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(temp_dir)
                 )
-                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(), timeout=timeout)
+                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(input=input_bytes), timeout=timeout)
                 stdout_data = out_bytes.decode("utf-8", errors="replace")
                 stderr_data = err_bytes.decode("utf-8", errors="replace")
                 exit_code = run_proc.returncode
@@ -419,11 +431,12 @@ async def execute_target_code(code: str, language: str, timeout: float = None) -
                     swift_bin,
                     "-module-cache-path", str(cache_dir),
                     str(source_path),
+                    stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(temp_dir)
                 )
-                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(), timeout=timeout)
+                out_bytes, err_bytes = await asyncio.wait_for(run_proc.communicate(input=input_bytes), timeout=timeout)
                 stdout_data = out_bytes.decode("utf-8", errors="replace")
                 stderr_data = err_bytes.decode("utf-8", errors="replace")
                 exit_code = run_proc.returncode
@@ -441,7 +454,7 @@ async def execute_target_code(code: str, language: str, timeout: float = None) -
 
             # Dynamic Swift Interpreter Engine via Python Subprocess
             py_code = transpile_swift_to_py(code)
-            exec_res = await execute_python_code(py_code, timeout=timeout)
+            exec_res = await execute_python_code(py_code, inputs=inputs, timeout=timeout)
             
             return {
                 "success": exec_res["success"],

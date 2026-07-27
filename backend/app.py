@@ -43,10 +43,13 @@ if FRONTEND_DIR.exists():
 # Pydantic Schemas for API Requests
 class CodeRunRequest(BaseModel):
     code: str = Field(..., description="Python source code to execute")
+    inputs: Optional[str] = Field("", description="Optional stdin input values")
 
 class CodeRunTargetRequest(BaseModel):
     code: str = Field(..., description="Converted target code to execute")
     language: str = Field(..., description="Target language (java, c, cpp, embedded_c, swift)")
+    inputs: Optional[str] = Field("", description="Optional stdin input values")
+
 
 class CodeConvertRequest(BaseModel):
     code: str = Field(..., description="Python source code to convert")
@@ -104,7 +107,7 @@ async def run_python_code(payload: CodeRunRequest):
     if not payload.code.strip():
         raise HTTPException(status_code=400, detail="Python code cannot be empty.")
 
-    result = await execute_python_code(payload.code)
+    result = await execute_python_code(payload.code, inputs=payload.inputs)
     return result
 
 
@@ -118,7 +121,7 @@ async def run_target_program(payload: CodeRunTargetRequest):
     if not payload.language.strip():
         raise HTTPException(status_code=400, detail="Target language must be specified.")
 
-    result = await execute_target_code(payload.code, payload.language)
+    result = await execute_target_code(payload.code, payload.language, inputs=payload.inputs)
     return result
 
 
