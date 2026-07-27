@@ -122,7 +122,7 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
                 ret = "int" if ret_type and "int" in ret_type.lower() else "void"
                 current_lines.append(f"{raw_indent}{ret} {name}({params_str}) {{")
             elif lang_key == "swift":
-                ret_str = f" -> [{ret_type.strip().capitalize()}]" if ret_type and "list" in ret_type.lower() else (f" -> {ret_type.strip()}" if ret_type else "")
+                ret_str = " -> [Int]" if ret_type and "list" in ret_type.lower() else (f" -> {ret_type.strip()}" if ret_type else "")
                 current_lines.append(f"{raw_indent}func {name}({params_str}){ret_str} {{")
             continue
 
@@ -143,10 +143,14 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
         # Loops
         if stripped.startswith("while ") and stripped.endswith(":"):
             cond = stripped[6:-1].strip()
-            cond = re.sub(r"len\(([a-zA-Z0-9_]+)\)", r"\1.size()", cond)
+            if lang_key == "swift":
+                cond = re.sub(r"len\(([a-zA-Z0-9_]+)\)", r"\1.count", cond)
+            else:
+                cond = re.sub(r"len\(([a-zA-Z0-9_]+)\)", r"\1.size()", cond)
             indent_stack.append((indent_level, raw_indent))
             current_lines.append(f"{raw_indent}while ({cond}) {{")
             continue
+
 
         enum_match = re.match(r"^for\s+([a-zA-Z0-9_]+),\s*([a-zA-Z0-9_]+)\s+in\s+enumerate\(([a-zA-Z0-9_]+)\):", stripped)
         if enum_match:
