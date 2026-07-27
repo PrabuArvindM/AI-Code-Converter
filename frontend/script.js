@@ -39,7 +39,17 @@ let currentTargetLang = "java";
 
 // Settings State (Loaded from localStorage)
 let aiProvider = localStorage.getItem("pymorph_provider") || "auto";
-let userApiKey = localStorage.getItem("pymorph_api_key") || "";
+let userApiKey = (localStorage.getItem("pymorph_api_key") || "").trim();
+
+// Helper to resolve absolute API URLs safely across all browsers
+function getApiUrl(endpoint) {
+    try {
+        const origin = (window.location.origin || (window.location.protocol + "//" + window.location.host)).replace(/\/+$/, "");
+        return origin + "/" + endpoint.replace(/^\/+/, "");
+    } catch (e) {
+        return "/" + endpoint.replace(/^\/+/, "");
+    }
+}
 
 // Target Language Configuration Map for Monaco Editor
 const LANG_MAP = {
@@ -223,7 +233,7 @@ async function runPythonCode() {
     updateConsoleStatus("running", 0);
 
     try {
-        const response = await fetch("/run", {
+        const response = await fetch(getApiUrl("run"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ code: pythonCode })
@@ -272,7 +282,7 @@ async function runTargetCode() {
     updateConsoleStatus("running", 0);
 
     try {
-        const response = await fetch("/run-target", {
+        const response = await fetch(getApiUrl("run-target"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -326,14 +336,15 @@ async function convertPythonCode() {
     showToast(`Converting Python to ${LANG_MAP[currentTargetLang].label.replace('Converted Code (', '').replace(')', '')}...`, "info");
 
     try {
-        const response = await fetch("/convert", {
+        const cleanApiKey = (userApiKey && userApiKey.trim() !== "") ? userApiKey.trim() : null;
+        const response = await fetch(getApiUrl("convert"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 code: pythonCode,
                 target_language: currentTargetLang,
                 provider: aiProvider,
-                api_key: userApiKey || null
+                api_key: cleanApiKey
             })
         });
 
@@ -383,7 +394,7 @@ async function downloadConvertedCode() {
     const defaultName = `converted_${currentTargetLang}${config.ext}`;
 
     try {
-        const response = await fetch("/download", {
+        const response = await fetch(getApiUrl("download"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
