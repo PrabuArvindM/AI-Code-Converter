@@ -69,8 +69,9 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
         if "if __name__ ==" in stripped or "if __name__==" in stripped:
             continue
 
+        is_elif_else = stripped.startswith("elif ") or stripped == "else:" or stripped.startswith("else:")
         # Pop indent stack and append closing braces
-        while indent_stack and indent_level <= indent_stack[-1][0]:
+        while indent_stack and (indent_level < indent_stack[-1][0] or (indent_level == indent_stack[-1][0] and not is_elif_else)):
             lvl, brace_indent = indent_stack.pop()
             current_lines.append(f"{brace_indent}}}")
 
@@ -270,6 +271,9 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
         else:
             current_lines.append(f"{raw_indent}{stripped}")
 
+    if lang_key in ["cpp", "c", "embedded_c"]:
+        main_lines.append("return 0;")
+
     # Close remaining indent stack
     while indent_stack:
         lvl, brace_indent = indent_stack.pop()
@@ -277,6 +281,8 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
 
     class_code = "\n".join(class_methods)
     main_code = "\n".join(main_lines)
+    body_code = "\n".join(class_methods + main_lines)
+    indented_body = "\n".join(["    " + l if l.strip() else "" for l in body_code.splitlines()])
 
     # Wrap body code dynamically in clean main class structure
     if lang_key == "java":
@@ -303,22 +309,25 @@ public class Main {{
 #include <vector>
 #include <string>
 
-int main() {{
-{indented_body}
-    return 0;
+{methods_block}int main() {{
+{indented_main}
 }}"""
 
     elif lang_key in ["c", "embedded_c"]:
-        indented_body = "\n".join(["    " + l if l.strip() else "" for l in body_code.splitlines()])
+        indented_methods = "\n".join(["" + l if l.strip() else "" for l in class_code.splitlines()])
+        indented_main = "\n".join(["    " + l if l.strip() else "" for l in main_code.splitlines()])
+        
+        methods_block = (indented_methods + "\n\n") if indented_methods.strip() else ""
         return f"""/* Converted from Python to {target_language} (PyMorph Morpher Engine) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 
-int main(void) {{
-{indented_body}
-    return 0;
+{methods_block}int main(void) {{
+{indented_main}
 }}"""
+
+
 
     elif lang_key == "swift":
         return f"""// Converted from Python to Swift (PyMorph Morpher Engine)
@@ -327,6 +336,7 @@ import Foundation
 {body_code}"""
 
     return body_code
+
 
 
 def convert_with_openrouter(python_code: str, target_language: str, api_key: str) -> Optional[str]:
