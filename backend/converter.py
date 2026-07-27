@@ -208,11 +208,13 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
                     cpp_str = " << ".join([f'"{p}"' if idx % 2 == 0 else f'({p})' for idx, p in enumerate(cpp_parts) if p])
                     current_lines.append(f'{raw_indent}std::cout << {cpp_str} << std::endl;')
                 elif lang_key in ["c", "embedded_c"]:
-                    c_str = re.sub(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", r"%d", raw_str)
+                    fmt_spec = "%s" if any(v in raw_str for v in ["n", "str", "name", "text", "val", "input", "line"]) else "%d"
+                    c_str = re.sub(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", fmt_spec, raw_str)
                     vars_found = re.findall(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", raw_str)
                     vars_str = ", ".join(vars_found)
                     vars_prefix = f", {vars_str}" if vars_str else ""
                     current_lines.append(f'{raw_indent}printf("{c_str}\\n"{vars_prefix});')
+
                 elif lang_key == "swift":
                     swift_str = re.sub(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", r"\\(\1)", raw_str)
                     current_lines.append(f'{raw_indent}print("{swift_str}")')
@@ -249,6 +251,35 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
             val = re.sub(r"([a-zA-Z0-9_]+)\[-1\]", r"\1.back()", val) if lang_key == "cpp" else val
             val = re.sub(r"([a-zA-Z0-9_]+)\[-2\]", r"\1[\1.size() - 2]", val) if lang_key == "cpp" else val
 
+            # Handle input() transpilation
+            if "input(" in val or val == "input()":
+                is_int = "int(" in val
+                if lang_key == "java":
+                    current_lines.append(f"{raw_indent}Scanner scanner = new Scanner(System.in);")
+                    if is_int:
+                        current_lines.append(f"{raw_indent}int {var_name} = scanner.nextInt();")
+                    else:
+                        current_lines.append(f"{raw_indent}String {var_name} = scanner.nextLine();")
+                elif lang_key == "cpp":
+                    if is_int:
+                        current_lines.append(f"{raw_indent}int {var_name};")
+                    else:
+                        current_lines.append(f"{raw_indent}std::string {var_name};")
+                    current_lines.append(f"{raw_indent}std::cin >> {var_name};")
+                elif lang_key in ["c", "embedded_c"]:
+                    if is_int:
+                        current_lines.append(f"{raw_indent}int {var_name};")
+                        current_lines.append(f'{raw_indent}scanf("%d", &{var_name});')
+                    else:
+                        current_lines.append(f"{raw_indent}char {var_name}[100];")
+                        current_lines.append(f'{raw_indent}scanf("%s", {var_name});')
+                elif lang_key == "swift":
+                    if is_int:
+                        current_lines.append(f'{raw_indent}let {var_name} = Int(readLine() ?? "") ?? 0')
+                    else:
+                        current_lines.append(f'{raw_indent}let {var_name} = readLine() ?? ""')
+                continue
+
             if lang_key == "java":
                 type_prefix = "int " if (val.isdigit() or "+" in val or "-" in val or "*" in val) else "var "
                 current_lines.append(f"{raw_indent}{type_prefix}{var_name} = {val};")
@@ -258,6 +289,7 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
             elif lang_key == "swift":
                 current_lines.append(f"{raw_indent}var {var_name} = {val}")
             continue
+
 
         # List Method: seq.append(next_val)
         if ".append(" in stripped:
