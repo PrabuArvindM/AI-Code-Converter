@@ -3,7 +3,8 @@ title: PyMorph AI
 emoji: 🚀
 colorFrom: blue
 colorTo: purple
-sdk: static
+sdk: docker
+app_port: 7860
 pinned: false
 license: mit
 ---
