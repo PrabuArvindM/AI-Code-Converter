@@ -262,11 +262,14 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
             if "input(" in val or val == "input()":
                 is_int = "int(" in val
                 if lang_key == "java":
-                    current_lines.append(f"{raw_indent}Scanner scanner = new Scanner(System.in);")
+                    has_scanner = any("Scanner scanner" in line for line in current_lines)
+                    if not has_scanner:
+                        current_lines.append(f"{raw_indent}Scanner scanner = new Scanner(System.in);")
                     if is_int:
                         current_lines.append(f"{raw_indent}int {var_name} = scanner.nextInt();")
                     else:
                         current_lines.append(f"{raw_indent}String {var_name} = scanner.nextLine();")
+
                 elif lang_key == "cpp":
                     if is_int:
                         current_lines.append(f"{raw_indent}int {var_name};")
