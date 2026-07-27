@@ -7,16 +7,22 @@ Created By: Prabu Arvind M
 import os
 from typing import Optional
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.config import settings, BASE_DIR
-from backend.runner import execute_python_code, execute_target_code
+from backend.runner import (
+    execute_python_code, 
+    execute_target_code, 
+    run_interactive_python_ws, 
+    run_interactive_target_ws
+)
 from backend.converter import convert_code
 from backend.utils import get_language_info, sanitize_filename
+
 
 # Initialize FastAPI Application
 app = FastAPI(
@@ -123,6 +129,17 @@ async def run_target_program(payload: CodeRunTargetRequest):
 
     result = await execute_target_code(payload.code, payload.language, inputs=payload.inputs)
     return result
+
+
+@app.websocket("/ws/run")
+async def ws_run_python(websocket: WebSocket, code: str = ""):
+    await run_interactive_python_ws(websocket, code)
+
+
+@app.websocket("/ws/run-target")
+async def ws_run_target(websocket: WebSocket, code: str = "", language: str = "java"):
+    await run_interactive_target_ws(websocket, code, language)
+
 
 
 @app.post("/convert")

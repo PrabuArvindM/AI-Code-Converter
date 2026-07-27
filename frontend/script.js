@@ -125,6 +125,21 @@ function setupEventListeners() {
     // Run Converted Target Code Button
     document.getElementById("runTargetBtn").addEventListener("click", runTargetCode);
 
+    // Stdin Input Listener
+    const stdinInput = document.getElementById("stdinInput");
+    if (stdinInput) {
+        stdinInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                const val = stdinInput.value;
+                stdinInput.value = "";
+                if (!sendStdinInput(val)) {
+                    stdinInput.value = val;
+                }
+            }
+        });
+    }
+
     // Convert Code Button
     document.getElementById("convertBtn").addEventListener("click", convertPythonCode);
 
@@ -213,25 +228,68 @@ function setupEventListeners() {
     });
 }
 
-// Execute Python Code via Backend API
+// Execute Python Code via Interactive WebSocket / HTTP API
 async function runPythonCode() {
-    // ALWAYS read live contents from editor
     const pythonCode = pyEditor.getValue();
     if (!pythonCode.trim()) {
-        showToast("Python code editor is empty!", "error");
+        showToast("Python code area is empty!", "error");
         return;
     }
 
     const consoleOutput = document.getElementById("consoleOutput");
     const sourceTag = document.getElementById("consoleSourceTag");
+    const stdinInput = document.getElementById("stdinInput");
+    
     sourceTag.innerText = "Python";
     sourceTag.style.background = "rgba(0, 122, 204, 0.25)";
     sourceTag.style.borderColor = "rgba(0, 122, 204, 0.4)";
 
-    consoleOutput.innerText = "Executing Python script...\n";
+    consoleOutput.innerText = "";
     consoleOutput.className = "console-pre";
     updateConsoleStatus("running", 0);
 
+    if (activeWS) {
+        try { activeWS.close(); } catch(e){}
+    }
+
+    const wsUrl = getWsUrl("ws/run", { code: pythonCode });
+
+    try {
+        const ws = new WebSocket(wsUrl);
+        activeWS = ws;
+
+        ws.onopen = () => {
+            if (stdinInput) stdinInput.focus();
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === "stdout") {
+                    consoleOutput.innerText += msg.data;
+                    consoleOutput.scrollTop = consoleOutput.scrollHeight;
+                } else if (msg.type === "exit") {
+                    updateConsoleStatus(msg.code === 0 ? "success" : "error", msg.execution_time_ms);
+                    showToast(msg.code === 0 ? "Python execution completed" : "Python execution failed", msg.code === 0 ? "success" : "error");
+                } else if (msg.type === "error") {
+                    consoleOutput.innerText += `\n[Error]: ${msg.data}`;
+                    updateConsoleStatus("error", 0);
+                }
+            } catch(e) {
+                consoleOutput.innerText += event.data;
+            }
+        };
+
+        ws.onerror = () => {
+            runPythonCodeHTTP(pythonCode);
+        };
+    } catch(e) {
+        runPythonCodeHTTP(pythonCode);
+    }
+}
+
+async function runPythonCodeHTTP(pythonCode) {
+    const consoleOutput = document.getElementById("consoleOutput");
     try {
         const stdinInput = document.getElementById("stdinInput");
         const stdinValue = stdinInput ? stdinInput.value : "";
@@ -264,7 +322,7 @@ async function runPythonCode() {
     }
 }
 
-// Execute Converted Target Code via Backend API
+// Execute Converted Target Code via Interactive WebSocket / HTTP API
 async function runTargetCode() {
     const code = targetEditor.getValue();
     if (!code.trim() || code.startsWith("// Click 'Convert")) {
@@ -275,15 +333,59 @@ async function runTargetCode() {
     const langConfig = LANG_MAP[currentTargetLang] || LANG_MAP["java"];
     const consoleOutput = document.getElementById("consoleOutput");
     const sourceTag = document.getElementById("consoleSourceTag");
-    
+    const stdinInput = document.getElementById("stdinInput");
+
     sourceTag.innerText = langConfig.label.replace('Converted Code (', '').replace(')', '');
     sourceTag.style.background = "rgba(168, 85, 247, 0.25)";
     sourceTag.style.borderColor = "rgba(168, 85, 247, 0.4)";
 
-    consoleOutput.innerText = `Compiling and executing ${sourceTag.innerText} code...\n`;
+    consoleOutput.innerText = "";
     consoleOutput.className = "console-pre";
     updateConsoleStatus("running", 0);
 
+    if (activeWS) {
+        try { activeWS.close(); } catch(e){}
+    }
+
+    const wsUrl = getWsUrl("ws/run-target", { code: code, language: currentTargetLang });
+
+    try {
+        const ws = new WebSocket(wsUrl);
+        activeWS = ws;
+
+        ws.onopen = () => {
+            if (stdinInput) stdinInput.focus();
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === "stdout") {
+                    consoleOutput.innerText += msg.data;
+                    consoleOutput.scrollTop = consoleOutput.scrollHeight;
+                } else if (msg.type === "exit") {
+                    updateConsoleStatus(msg.code === 0 ? "success" : "error", msg.execution_time_ms);
+                    showToast(msg.code === 0 ? `${sourceTag.innerText} executed successfully!` : `${sourceTag.innerText} execution failed`, msg.code === 0 ? "success" : "error");
+                } else if (msg.type === "error") {
+                    consoleOutput.innerText += `\n[Error]: ${msg.data}`;
+                    updateConsoleStatus("error", 0);
+                }
+            } catch(e) {
+                consoleOutput.innerText += event.data;
+            }
+        };
+
+        ws.onerror = () => {
+            runTargetCodeHTTP(code, currentTargetLang);
+        };
+    } catch(e) {
+        runTargetCodeHTTP(code, currentTargetLang);
+    }
+}
+
+async function runTargetCodeHTTP(code, currentTargetLang) {
+    const consoleOutput = document.getElementById("consoleOutput");
+    const sourceTag = document.getElementById("consoleSourceTag");
     try {
         const stdinInput = document.getElementById("stdinInput");
         const stdinValue = stdinInput ? stdinInput.value : "";

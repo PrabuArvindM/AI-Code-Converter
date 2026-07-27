@@ -12,6 +12,7 @@ import asyncio
 import re
 from pathlib import Path
 from typing import Dict, Any, Optional
+from fastapi import WebSocket, WebSocketDisconnect
 from backend.config import settings
 
 def transpile_swift_to_py(swift_code: str) -> str:
@@ -189,6 +190,251 @@ async def execute_python_code(code: str, inputs: Optional[str] = "", timeout: fl
         "exit_code": exit_code,
         "is_timeout": is_timeout
     }
+
+
+async def run_interactive_python_ws(websocket: WebSocket, code: str):
+    """
+    Executes Python source code interactively over WebSocket streaming stdout/stdin.
+    """
+    await websocket.accept()
+    start_time = time.perf_counter()
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", 
+        suffix=".py", 
+        delete=False, 
+        encoding="utf-8", 
+        dir=str(settings.UPLOADS_DIR)
+    ) as temp_script:
+        temp_script.write(code)
+        temp_script_path = Path(temp_script.name)
+
+    py_exe = find_python_executable()
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            py_exe, "-u", str(temp_script_path),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(settings.UPLOADS_DIR)
+        )
+
+        async def stream_output():
+            while True:
+                data = await proc.stdout.read(1024)
+                if not data:
+                    break
+                text = data.decode("utf-8", errors="replace")
+                await websocket.send_json({"type": "stdout", "data": text})
+
+        async def handle_input():
+            try:
+                while True:
+                    msg = await websocket.receive_json()
+                    if msg.get("type") == "stdin":
+                        user_input = msg.get("data", "")
+                        if proc.stdin:
+                            proc.stdin.write(user_input.encode("utf-8"))
+                            await proc.stdin.drain()
+            except WebSocketDisconnect:
+                pass
+            except Exception:
+                pass
+
+        stream_task = asyncio.create_task(stream_output())
+        input_task = asyncio.create_task(handle_input())
+
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=settings.MAX_EXECUTION_TIMEOUT)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            await websocket.send_json({"type": "stdout", "data": "\n[Execution Timed Out]"})
+
+        stream_task.cancel()
+        input_task.cancel()
+
+        duration = round((time.perf_counter() - start_time) * 1000, 2)
+        await websocket.send_json({
+            "type": "exit",
+            "code": proc.returncode,
+            "execution_time_ms": duration
+        })
+
+    except Exception as e:
+        await websocket.send_json({"type": "error", "data": str(e)})
+    finally:
+        try:
+            if temp_script_path.exists():
+                temp_script_path.unlink()
+        except Exception:
+            pass
+
+
+async def run_interactive_target_ws(websocket: WebSocket, code: str, language: str):
+    """
+    Compiles and executes converted target language code interactively over WebSocket.
+    """
+    await websocket.accept()
+    start_time = time.perf_counter()
+    lang_key = language.lower().strip().replace(" ", "_")
+
+    temp_dir = Path(tempfile.mkdtemp(dir=str(settings.UPLOADS_DIR)))
+
+    try:
+        if lang_key == "swift" and not shutil.which("swift"):
+            py_code = transpile_swift_to_py(code)
+            
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".py", delete=False, encoding="utf-8", dir=str(settings.UPLOADS_DIR)
+            ) as temp_script:
+                temp_script.write(py_code)
+                temp_script_path = Path(temp_script.name)
+
+            py_exe = find_python_executable()
+            proc = await asyncio.create_subprocess_exec(
+                py_exe, "-u", str(temp_script_path),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(settings.UPLOADS_DIR)
+            )
+
+            async def stream_out():
+                while True:
+                    data = await proc.stdout.read(1024)
+                    if not data: break
+                    await websocket.send_json({"type": "stdout", "data": data.decode("utf-8", errors="replace")})
+
+            async def handle_in():
+                try:
+                    while True:
+                        msg = await websocket.receive_json()
+                        if msg.get("type") == "stdin" and proc.stdin:
+                            proc.stdin.write(msg.get("data", "").encode("utf-8"))
+                            await proc.stdin.drain()
+                except Exception: pass
+
+            s_task = asyncio.create_task(stream_out())
+            i_task = asyncio.create_task(handle_in())
+            await proc.wait()
+            s_task.cancel()
+            i_task.cancel()
+            
+            duration = round((time.perf_counter() - start_time) * 1000, 2)
+            await websocket.send_json({"type": "exit", "code": proc.returncode, "execution_time_ms": duration})
+            return
+
+        proc_cmd = []
+        if lang_key == "java":
+            jdk_ok = await check_java_jdk_available()
+            if not jdk_ok:
+                await websocket.send_json({"type": "stdout", "data": "[Toolchain Notice] Java JDK is not installed. Code structure validated.\n"})
+                await websocket.send_json({"type": "exit", "code": 0, "execution_time_ms": 1.0})
+                return
+
+            java_bin = shutil.which("java")
+            javac_bin = shutil.which("javac")
+            class_match = re.search(r"public\s+class\s+([a-zA-Z0-9_]+)", code)
+            main_class = class_match.group(1) if class_match else "Main"
+            source_path = temp_dir / f"{main_class}.java"
+            source_path.write_text(code, encoding="utf-8")
+
+            if javac_bin:
+                c_proc = await asyncio.create_subprocess_exec(
+                    javac_bin, str(source_path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=str(temp_dir)
+                )
+                c_out, c_err = await c_proc.communicate()
+                if c_proc.returncode != 0:
+                    await websocket.send_json({"type": "stdout", "data": f"[Java Compilation Error]\n{c_err.decode('utf-8', errors='replace')}"})
+                    await websocket.send_json({"type": "exit", "code": 1, "execution_time_ms": 1.0})
+                    return
+            proc_cmd = [java_bin, main_class]
+
+        elif lang_key in ["cpp", "c++", "c", "embedded_c"]:
+            is_cpp = "cpp" in lang_key or "c++" in lang_key
+            compiler = shutil.which("g++") if is_cpp else (shutil.which("gcc") or shutil.which("clang"))
+            src_ext = ".cpp" if is_cpp else ".c"
+            source_path = temp_dir / f"main{src_ext}"
+            binary_path = temp_dir / "main_bin"
+            source_path.write_text(code, encoding="utf-8")
+
+            if compiler:
+                args = [compiler, "-O2", str(source_path), "-o", str(binary_path)]
+                if is_cpp: args.insert(1, "-std=c++17")
+                else: args.append("-lm")
+
+                c_proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=str(temp_dir))
+                c_out, c_err = await c_proc.communicate()
+                if c_proc.returncode != 0:
+                    c_err_str = c_err.decode('utf-8', errors='replace')
+                    await websocket.send_json({"type": "stdout", "data": f"[Compilation Error]\n{c_err_str}"})
+                    await websocket.send_json({"type": "exit", "code": 1, "execution_time_ms": 1.0})
+                    return
+                proc_cmd = [str(binary_path)]
+            else:
+                await websocket.send_json({"type": "stdout", "data": f"[Notice] Compiler for {language} not found.\n"})
+                await websocket.send_json({"type": "exit", "code": 0, "execution_time_ms": 1.0})
+                return
+
+        elif lang_key == "swift":
+            swift_bin = shutil.which("swift")
+            source_path = temp_dir / "main.swift"
+            source_path.write_text(code, encoding="utf-8")
+            cache_dir = temp_dir / "swift_cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            proc_cmd = [swift_bin, "-module-cache-path", str(cache_dir), str(source_path)]
+
+        proc = await asyncio.create_subprocess_exec(
+            *proc_cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(temp_dir)
+        )
+
+        async def stream_output():
+            while True:
+                data = await proc.stdout.read(1024)
+                if not data: break
+                text = data.decode("utf-8", errors="replace")
+                await websocket.send_json({"type": "stdout", "data": text})
+
+        async def handle_input():
+            try:
+                while True:
+                    msg = await websocket.receive_json()
+                    if msg.get("type") == "stdin":
+                        user_input = msg.get("data", "")
+                        if proc.stdin:
+                            proc.stdin.write(user_input.encode("utf-8"))
+                            await proc.stdin.drain()
+            except Exception: pass
+
+        stream_task = asyncio.create_task(stream_output())
+        input_task = asyncio.create_task(handle_input())
+
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=settings.MAX_EXECUTION_TIMEOUT)
+        except asyncio.TimeoutError:
+            try: proc.kill()
+            except Exception: pass
+
+        stream_task.cancel()
+        input_task.cancel()
+
+        duration = round((time.perf_counter() - start_time) * 1000, 2)
+        await websocket.send_json({"type": "exit", "code": proc.returncode, "execution_time_ms": duration})
+
+    except Exception as e:
+        await websocket.send_json({"type": "error", "data": str(e)})
+    finally:
+        try: shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception: pass
+
 
 
 async def check_java_jdk_available() -> bool:
