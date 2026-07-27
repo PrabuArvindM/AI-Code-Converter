@@ -483,7 +483,7 @@ async def convert_with_gemini(python_code: str, target_language: str, api_key: s
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
-        for model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"]:
+        for model in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]:
             try:
                 response = client.models.generate_content(
                     model=model,
@@ -505,7 +505,7 @@ async def convert_with_gemini(python_code: str, target_language: str, api_key: s
     try:
         import google.generativeai as genai
         genai.configure(api_key=api_key)
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
+        for model_name in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
                 model = genai.GenerativeModel(
                     model_name=model_name,
@@ -521,6 +521,7 @@ async def convert_with_gemini(python_code: str, target_language: str, api_key: s
         print("[google.generativeai Client Error]:", exc)
 
     return None
+
 
 
 
