@@ -440,7 +440,7 @@ async def convert_with_gemini(python_code: str, target_language: str, api_key: s
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
-        for model in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]:
+        for model in ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]:
             try:
                 response = client.models.generate_content(
                     model=model,
@@ -452,8 +452,11 @@ async def convert_with_gemini(python_code: str, target_language: str, api_key: s
                 )
                 if response and response.text:
                     return response.text
-            except Exception:
+            except Exception as e:
+                print(f"[Gemini API Error for {model}]:", e)
                 continue
+
+
 
     except ImportError:
         try:
