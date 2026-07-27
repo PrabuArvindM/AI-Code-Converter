@@ -24,31 +24,64 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
     lang_key = target_language.lower().strip().replace(" ", "_")
     lines = python_code.splitlines()
 
-    converted_lines = []
-    has_functions = False
+    class_methods = []
+    main_lines = []
+    
+    indent_stack = []
+    in_docstring = False
+    current_func = None
+    current_lines = main_lines
 
     for line in lines:
         raw_indent = line[:len(line) - len(line.lstrip())]
+        indent_level = len(raw_indent)
         stripped = line.strip()
+
+        # Handle docstrings
+        if stripped.startswith('"""') or stripped.startswith("'''"):
+            cleaned_doc = stripped.strip('"\'- ').strip()
+            if cleaned_doc:
+                current_lines.append(f"{raw_indent}// {cleaned_doc}")
+            is_single_line = (stripped.startswith('"""') and stripped.endswith('"""') and len(stripped) > 3) or \
+                             (stripped.startswith("'''") and stripped.endswith("'''") and len(stripped) > 3)
+            if not is_single_line:
+                in_docstring = not in_docstring
+            continue
+            
+        if in_docstring:
+            if stripped.endswith('"""') or stripped.endswith("'''"):
+                in_docstring = False
+            else:
+                current_lines.append(f"{raw_indent}// {stripped}")
+            continue
 
         # Empty lines
         if not stripped:
-            converted_lines.append("")
+            current_lines.append("")
             continue
 
         # Comments
         if stripped.startswith("#"):
-            converted_lines.append(f"{raw_indent}// {stripped[1:].strip()}")
+            current_lines.append(f"{raw_indent}// {stripped[1:].strip()}")
             continue
 
         # Strip Python main guard
         if "if __name__ ==" in stripped or "if __name__==" in stripped:
             continue
 
+        # Pop indent stack and append closing braces
+        while indent_stack and indent_level <= indent_stack[-1][0]:
+            lvl, brace_indent = indent_stack.pop()
+            current_lines.append(f"{brace_indent}}}")
+
+        # Check if function definition ended
+        if current_func and indent_level <= current_func["indent"]:
+            current_func = None
+            current_lines = main_lines
+
         # Function Definitions: `def name(params):`
         func_match = re.match(r"^def\s+([a-zA-Z_][a-zA-Z0-9_]*)\((.*?)\)(?:\s*->\s*(.*?))?:", stripped)
         if func_match:
-            has_functions = True
             name, params, ret_type = func_match.groups()
             param_list = params.split(",") if params.strip() else []
             formatted_params = []
@@ -71,63 +104,73 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
 
             params_str = ", ".join(formatted_params)
 
+            if name == "main":
+                continue
+
+            current_func = {"name": name, "indent": indent_level}
+            current_lines = class_methods
+            indent_stack.append((indent_level, raw_indent))
+
             if lang_key == "java":
                 ret = "List<Integer>" if ret_type and "list" in ret_type.lower() else ("int" if ret_type and "int" in ret_type.lower() else "void")
-                converted_lines.append(f"{raw_indent}public static {ret} {name}({params_str}) {{")
+                current_lines.append(f"{raw_indent}public static {ret} {name}({params_str}) {{")
             elif lang_key == "cpp":
                 ret = "std::vector<int>" if ret_type and "list" in ret_type.lower() else ("int" if ret_type and "int" in ret_type.lower() else "void")
-                converted_lines.append(f"{raw_indent}{ret} {name}({params_str}) {{")
+                current_lines.append(f"{raw_indent}{ret} {name}({params_str}) {{")
             elif lang_key in ["c", "embedded_c"]:
                 ret = "int" if ret_type and "int" in ret_type.lower() else "void"
-                converted_lines.append(f"{raw_indent}{ret} {name}({params_str}) {{")
+                current_lines.append(f"{raw_indent}{ret} {name}({params_str}) {{")
             elif lang_key == "swift":
                 ret_str = f" -> [{ret_type.strip().capitalize()}]" if ret_type and "list" in ret_type.lower() else (f" -> {ret_type.strip()}" if ret_type else "")
-                converted_lines.append(f"{raw_indent}func {name}({params_str}){ret_str} {{")
+                current_lines.append(f"{raw_indent}func {name}({params_str}){ret_str} {{")
             continue
 
         # Conditionals (if, elif, else)
         if stripped.startswith("if ") and stripped.endswith(":"):
             cond = stripped[3:-1].strip()
-            converted_lines.append(f"{raw_indent}if ({cond}) {{")
+            indent_stack.append((indent_level, raw_indent))
+            current_lines.append(f"{raw_indent}if ({cond}) {{")
             continue
         elif stripped.startswith("elif ") and stripped.endswith(":"):
             cond = stripped[5:-1].strip()
-            converted_lines.append(f"{raw_indent}}} else if ({cond}) {{")
+            current_lines.append(f"{raw_indent}}} else if ({cond}) {{")
             continue
         elif stripped == "else:":
-            converted_lines.append(f"{raw_indent}}} else {{")
+            current_lines.append(f"{raw_indent}}} else {{")
             continue
 
-        # While Loops
+        # Loops
         if stripped.startswith("while ") and stripped.endswith(":"):
             cond = stripped[6:-1].strip()
             cond = re.sub(r"len\(([a-zA-Z0-9_]+)\)", r"\1.size()", cond)
-            converted_lines.append(f"{raw_indent}while ({cond}) {{")
+            indent_stack.append((indent_level, raw_indent))
+            current_lines.append(f"{raw_indent}while ({cond}) {{")
             continue
 
-        # For Loops
         enum_match = re.match(r"^for\s+([a-zA-Z0-9_]+),\s*([a-zA-Z0-9_]+)\s+in\s+enumerate\(([a-zA-Z0-9_]+)\):", stripped)
         if enum_match:
             idx_var, val_var, list_var = enum_match.groups()
+            indent_stack.append((indent_level, raw_indent))
             if lang_key == "java":
-                converted_lines.append(f"{raw_indent}for (int {idx_var} = 0; {idx_var} < {list_var}.size(); {idx_var}++) {{")
-                converted_lines.append(f"{raw_indent}    int {val_var} = {list_var}.get({idx_var});")
+                current_lines.append(f"{raw_indent}for (int {idx_var} = 0; {idx_var} < {list_var}.size(); {idx_var}++) {{")
+                current_lines.append(f"{raw_indent}    int {val_var} = {list_var}.get({idx_var});")
             elif lang_key == "cpp":
-                converted_lines.append(f"{raw_indent}for (size_t {idx_var} = 0; {idx_var} < {list_var}.size(); {idx_var}++) {{")
-                converted_lines.append(f"{raw_indent}    auto {val_var} = {list_var}[{idx_var}];")
+                current_lines.append(f"{raw_indent}for (size_t {idx_var} = 0; {idx_var} < {list_var}.size(); {idx_var}++) {{")
+                current_lines.append(f"{raw_indent}    auto {val_var} = {list_var}[{idx_var}];")
             elif lang_key == "swift":
-                converted_lines.append(f"{raw_indent}for ({idx_var}, {val_var}) in {list_var}.enumerated() {{")
+                current_lines.append(f"{raw_indent}for ({idx_var}, {val_var}) in {list_var}.enumerated() {{")
             else:
-                converted_lines.append(f"{raw_indent}for (int {idx_var} = 0; {idx_var} < 10; {idx_var}++) {{")
+                current_lines.append(f"{raw_indent}for (int {idx_var} = 0; {idx_var} < 10; {idx_var}++) {{")
             continue
 
         range_match = re.match(r"^for\s+([a-zA-Z0-9_]+)\s+in\s+range\((.*?)\):", stripped)
         if range_match:
             var_name, rng = range_match.groups()
+            indent_stack.append((indent_level, raw_indent))
             if lang_key in ["java", "cpp", "c", "embedded_c"]:
-                converted_lines.append(f"{raw_indent}for (int {var_name} = 0; {var_name} < {rng}; {var_name}++) {{")
+                current_lines.append(f"{raw_indent}for (int {var_name} = 0; {var_name} < {rng}; {var_name}++) {{")
             elif lang_key == "swift":
-                converted_lines.append(f"{raw_indent}for {var_name} in 0..<{rng} {{")
+                current_lines.append(f"{raw_indent}for {var_name} in 0..<{rng} {{")
             continue
 
         # Return Statements
@@ -142,47 +185,44 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
                 elif lang_key == "cpp": val = "{0}"
                 elif lang_key == "swift": val = "[0]"
             
-            suffix = ";" if lang_key != "swift" else ""
-            converted_lines.append(f"{raw_indent}return {val}{suffix}")
+            suffix = ";" if lang_key in ["java", "cpp", "c", "embedded_c"] else ""
+            current_lines.append(f"{raw_indent}return {val}{suffix}")
             continue
 
         # Print Statements
         if stripped.startswith("print(") and stripped.endswith(")"):
             inner = stripped[6:-1].strip()
-            
-            # f-strings
             if inner.startswith("f\"") or inner.startswith("f'"):
                 raw_str = inner[2:-1]
                 if lang_key == "java":
                     java_str = re.sub(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", r'" + (\1) + "', raw_str)
-                    converted_lines.append(f'{raw_indent}System.out.println("{java_str}");')
+                    current_lines.append(f'{raw_indent}System.out.println("{java_str}");')
                 elif lang_key == "cpp":
                     cpp_parts = re.split(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", raw_str)
                     cpp_str = " << ".join([f'"{p}"' if idx % 2 == 0 else f'({p})' for idx, p in enumerate(cpp_parts) if p])
-                    converted_lines.append(f'{raw_indent}std::cout << {cpp_str} << std::endl;')
+                    current_lines.append(f'{raw_indent}std::cout << {cpp_str} << std::endl;')
                 elif lang_key in ["c", "embedded_c"]:
                     c_str = re.sub(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", r"%d", raw_str)
                     vars_found = re.findall(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", raw_str)
                     vars_str = ", ".join(vars_found)
                     vars_prefix = f", {vars_str}" if vars_str else ""
-                    converted_lines.append(f'{raw_indent}printf("{c_str}\\n"{vars_prefix});')
+                    current_lines.append(f'{raw_indent}printf("{c_str}\\n"{vars_prefix});')
                 elif lang_key == "swift":
                     swift_str = re.sub(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", r"\\(\1)", raw_str)
-                    converted_lines.append(f'{raw_indent}print("{swift_str}")')
+                    current_lines.append(f'{raw_indent}print("{swift_str}")')
                 continue
             else:
                 if lang_key == "java":
-                    converted_lines.append(f'{raw_indent}System.out.println({inner});')
+                    current_lines.append(f'{raw_indent}System.out.println({inner});')
                 elif lang_key == "cpp":
-                    converted_lines.append(f'{raw_indent}std::cout << {inner} << std::endl;')
+                    current_lines.append(f'{raw_indent}std::cout << {inner} << std::endl;')
                 elif lang_key in ["c", "embedded_c"]:
-                    # Determine string vs number
                     if inner.startswith('"') or inner.startswith("'"):
-                        converted_lines.append(f'{raw_indent}printf("%s\\n", {inner});')
+                        current_lines.append(f'{raw_indent}printf("%s\\n", {inner});')
                     else:
-                        converted_lines.append(f'{raw_indent}printf("%d\\n", {inner});')
+                        current_lines.append(f'{raw_indent}printf("%d\\n", {inner});')
                 elif lang_key == "swift":
-                    converted_lines.append(f'{raw_indent}print({inner})')
+                    current_lines.append(f'{raw_indent}print({inner})')
                 continue
 
         # Variable Assignments & Declarations
@@ -191,11 +231,11 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
             
             if val == "[0, 1]":
                 if lang_key == "java":
-                    converted_lines.append(f"{raw_indent}List<Integer> {var_name} = new ArrayList<>(Arrays.asList(0, 1));")
+                    current_lines.append(f"{raw_indent}List<Integer> {var_name} = new ArrayList<>(Arrays.asList(0, 1));")
                 elif lang_key == "cpp":
-                    converted_lines.append(f"{raw_indent}std::vector<int> {var_name} = {{0, 1}};")
+                    current_lines.append(f"{raw_indent}std::vector<int> {var_name} = {{0, 1}};")
                 elif lang_key == "swift":
-                    converted_lines.append(f"{raw_indent}var {var_name} = [0, 1]")
+                    current_lines.append(f"{raw_indent}var {var_name} = [0, 1]")
                 continue
 
             val = re.sub(r"([a-zA-Z0-9_]+)\[-1\]", r"\1.get(\1.size() - 1)", val) if lang_key == "java" else val
@@ -205,47 +245,59 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
 
             if lang_key == "java":
                 type_prefix = "int " if (val.isdigit() or "+" in val or "-" in val or "*" in val) else "var "
-                converted_lines.append(f"{raw_indent}{type_prefix}{var_name} = {val};")
+                current_lines.append(f"{raw_indent}{type_prefix}{var_name} = {val};")
             elif lang_key in ["cpp", "c", "embedded_c"]:
                 type_prefix = "auto " if lang_key == "cpp" else "int "
-                converted_lines.append(f"{raw_indent}{type_prefix}{var_name} = {val};")
+                current_lines.append(f"{raw_indent}{type_prefix}{var_name} = {val};")
             elif lang_key == "swift":
-                converted_lines.append(f"{raw_indent}var {var_name} = {val}")
+                current_lines.append(f"{raw_indent}var {var_name} = {val}")
             continue
 
         # List Method: seq.append(next_val)
         if ".append(" in stripped:
             if lang_key == "java":
-                converted_lines.append(f"{raw_indent}" + stripped.replace(".append(", ".add(").rstrip(";") + ";")
+                current_lines.append(f"{raw_indent}" + stripped.replace(".append(", ".add(").rstrip(";") + ";")
             elif lang_key == "cpp":
-                converted_lines.append(f"{raw_indent}" + stripped.replace(".append(", ".push_back(").rstrip(";") + ";")
+                current_lines.append(f"{raw_indent}" + stripped.replace(".append(", ".push_back(").rstrip(";") + ";")
             elif lang_key == "swift":
-                converted_lines.append(f"{raw_indent}" + stripped.rstrip(";"))
+                current_lines.append(f"{raw_indent}" + stripped.rstrip(";"))
             continue
 
-        # End block closing braces or default statement
+        # Default statements
         if lang_key in ["java", "cpp", "c", "embedded_c"]:
             suffix = ";" if not stripped.endswith(";") and not stripped.endswith("}") and not stripped.endswith("{") else ""
-            converted_lines.append(f"{raw_indent}{stripped}{suffix}")
+            current_lines.append(f"{raw_indent}{stripped}{suffix}")
         else:
-            converted_lines.append(f"{raw_indent}{stripped}")
+            current_lines.append(f"{raw_indent}{stripped}")
 
-    body_code = "\n".join(converted_lines)
+    # Close remaining indent stack
+    while indent_stack:
+        lvl, brace_indent = indent_stack.pop()
+        current_lines.append(f"{brace_indent}}}")
+
+    class_code = "\n".join(class_methods)
+    main_code = "\n".join(main_lines)
 
     # Wrap body code dynamically in clean main class structure
     if lang_key == "java":
-        indented_body = "\n".join(["        " + l if l.strip() else "" for l in body_code.splitlines()])
+        indented_methods = "\n".join(["    " + l if l.strip() else "" for l in class_code.splitlines()])
+        indented_main = "\n".join(["        " + l if l.strip() else "" for l in main_code.splitlines()])
+        
+        methods_block = (indented_methods + "\n\n") if indented_methods.strip() else ""
         return f"""// Converted from Python to Java (PyMorph Morpher Engine)
 import java.util.*;
 
 public class Main {{
-    public static void main(String[] args) {{
-{indented_body}
+{methods_block}    public static void main(String[] args) {{
+{indented_main}
     }}
 }}"""
 
     elif lang_key == "cpp":
-        indented_body = "\n".join(["    " + l if l.strip() else "" for l in body_code.splitlines()])
+        indented_methods = "\n".join(["" + l if l.strip() else "" for l in class_code.splitlines()])
+        indented_main = "\n".join(["    " + l if l.strip() else "" for l in main_code.splitlines()])
+        
+        methods_block = (indented_methods + "\n\n") if indented_methods.strip() else ""
         return f"""// Converted from Python to C++ (PyMorph Morpher Engine)
 #include <iostream>
 #include <vector>
