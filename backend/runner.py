@@ -68,8 +68,10 @@ def transpile_swift_to_py(swift_code: str) -> str:
             py_lines.append(line_clean)
             continue
             
-        # Strip Swift type annotations like `x: Int` -> `x`
+        # Strip Swift type annotations or function argument labels like `fibonacci(n: terms)` -> `fibonacci(terms)`
+        line_clean = re.sub(r"([a-zA-Z0-9_]+)\s*:\s*([a-zA-Z0-9_]+)", r"\2", line_clean)
         line_clean = re.sub(r"([a-zA-Z0-9_]+):\s*[a-zA-Z0-9_\[\]]+", r"\1", line_clean)
+
 
         # Convert Swift string interpolation: \(x) -> {x}
         if "\\(" in line_clean:
