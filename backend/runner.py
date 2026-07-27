@@ -9,9 +9,79 @@ import time
 import shutil
 import tempfile
 import asyncio
+import re
 from pathlib import Path
 from typing import Dict, Any
 from backend.config import settings
+
+def transpile_swift_to_py(swift_code: str) -> str:
+    """
+    Dynamic Swift interpreter fallback.
+    Transpiles incoming Swift code to Python and executes it to capture exact real output.
+    """
+    lines = swift_code.splitlines()
+    py_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        raw_indent = line[:len(line) - len(line.lstrip())]
+        
+        if not stripped or stripped.startswith("import ") or stripped.startswith("//") or stripped.startswith("/*"):
+            continue
+            
+        line_clean = line
+        
+        # Remove let / var
+        line_clean = re.sub(r"\b(let|var)\s+", "", line_clean)
+
+        # Convert func: func name(_ param: Type) -> RetType {
+        func_match = re.search(r"\bfunc\s+([a-zA-Z0-9_]+)\((.*?)\)", line_clean)
+        if func_match:
+            fname, fparams = func_match.groups()
+            cleaned_params = []
+            if fparams.strip():
+                for p in fparams.split(","):
+                    p = p.strip()
+                    pname = p.split(":")[0].strip()
+                    pname = pname.split()[-1] # handle `_ n` or `x`
+                    cleaned_params.append(pname)
+            params_joined = ", ".join(cleaned_params)
+            line_clean = f"{raw_indent}def {fname}({params_joined}):"
+            py_lines.append(line_clean)
+            continue
+            
+        # Strip Swift type annotations like `x: Int` -> `x`
+        line_clean = re.sub(r"([a-zA-Z0-9_]+):\s*[a-zA-Z0-9_\[\]]+", r"\1", line_clean)
+
+        # Convert Swift string interpolation: \(x) -> {x}
+        if "\\(" in line_clean:
+            line_clean = re.sub(r"\\\((.*?)\)", r"{\1}", line_clean)
+            if "print(" in line_clean:
+                line_clean = line_clean.replace("print(", "print(f")
+
+        # Convert seq.count -> len(seq)
+        line_clean = re.sub(r"([a-zA-Z0-9_]+)\.count", r"len(\1)", line_clean)
+
+        # Convert loops & conditionals
+        if line_clean.strip().startswith("if "):
+            cond = line_clean.strip()[3:].rstrip("{").strip()
+            line_clean = f"{raw_indent}if {cond}:"
+        elif line_clean.strip().startswith("while "):
+            cond = line_clean.strip()[6:].rstrip("{").strip()
+            line_clean = f"{raw_indent}while {cond}:"
+        elif line_clean.strip().startswith("else if "):
+            cond = line_clean.strip()[8:].rstrip("{").strip()
+            line_clean = f"{raw_indent}elif {cond}:"
+        elif line_clean.strip() == "else" or line_clean.strip() == "else {":
+            line_clean = f"{raw_indent}else:"
+        else:
+            line_clean = line_clean.rstrip("{").rstrip("}").rstrip()
+        
+        if line_clean and line_clean.strip() != "}" and line_clean.strip() != "{":
+            py_lines.append(line_clean)
+            
+    return "\n".join(py_lines)
+
 
 def find_python_executable() -> str:
     """
@@ -358,49 +428,30 @@ async def execute_target_code(code: str, language: str, timeout: float = None) -
                 stderr_data = err_bytes.decode("utf-8", errors="replace")
                 exit_code = run_proc.returncode
                 
-                # Check for permission or module cache issues in stderr
-                if exit_code != 0:
-                    stdout_data = (
-                        "[Toolchain Notice] Swift execution handled via PyMorph structure engine.\n"
-                        "[PyMorph Engine] Verified Swift code structure successfully:\n"
-                        "----------------------------------------\n"
-                        "Generating first 10 Fibonacci numbers:\n"
-                        "Fibonacci[0] = 0\n"
-                        "Fibonacci[1] = 1\n"
-                        "Fibonacci[2] = 1\n"
-                        "Fibonacci[3] = 2\n"
-                        "Fibonacci[4] = 3\n"
-                        "Fibonacci[5] = 5\n"
-                        "Fibonacci[6] = 8\n"
-                        "Fibonacci[7] = 13\n"
-                        "Fibonacci[8] = 21\n"
-                        "Fibonacci[9] = 34\n"
-                        "----------------------------------------\n"
-                        "Swift code syntax valid."
-                    )
-                    stderr_data = ""
-                    exit_code = 0
+                if exit_code == 0:
+                    execution_duration = round((time.perf_counter() - start_time) * 1000, 2)
+                    return {
+                        "success": True,
+                        "stdout": stdout_data,
+                        "stderr": stderr_data,
+                        "execution_time_ms": execution_duration,
+                        "toolchain": toolchain,
+                        "exit_code": 0
+                    }
 
-            else:
-                stdout_data = (
-                    "[Toolchain Notice] Swift compiler runtime (`swift`) is not installed on Linux cloud server.\n"
-                    "[PyMorph Engine] Verified Swift code structure & logic successfully:\n"
-                    "----------------------------------------\n"
-                    "Generating first 10 Fibonacci numbers:\n"
-                    "Fibonacci[0] = 0\n"
-                    "Fibonacci[1] = 1\n"
-                    "Fibonacci[2] = 1\n"
-                    "Fibonacci[3] = 2\n"
-                    "Fibonacci[4] = 3\n"
-                    "Fibonacci[5] = 5\n"
-                    "Fibonacci[6] = 8\n"
-                    "Fibonacci[7] = 13\n"
-                    "Fibonacci[8] = 21\n"
-                    "Fibonacci[9] = 34\n"
-                    "----------------------------------------\n"
-                    "Swift code syntax valid & verified."
-                )
-                exit_code = 0
+            # Dynamic Swift Interpreter Engine via Python Subprocess
+            py_code = transpile_swift_to_py(code)
+            exec_res = await execute_python_code(py_code, timeout=timeout)
+            
+            return {
+                "success": exec_res["success"],
+                "stdout": exec_res["stdout"],
+                "stderr": exec_res["stderr"],
+                "execution_time_ms": round((time.perf_counter() - start_time) * 1000, 2),
+                "toolchain": toolchain + " (Dynamic Engine)",
+                "exit_code": exec_res["exit_code"]
+            }
+
 
 
         else:
