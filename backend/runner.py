@@ -34,6 +34,17 @@ def transpile_swift_to_py(swift_code: str) -> str:
         # Remove let / var
         line_clean = re.sub(r"\b(let|var)\s+", "", line_clean)
 
+        # Convert Swift readLine() / readLine()! / readLine() ?? "" -> input()
+        line_clean = re.sub(r"readLine\(\s*\)(?:\s*!\s*)?(?:\s*\?\?\s*\"[^\"]*\")?", "input()", line_clean)
+        
+        # Convert Swift Int(...) -> int(...)
+        line_clean = re.sub(r"\bInt\(", "int(", line_clean)
+        
+        # Strip trailing ! or ?? default value
+        line_clean = re.sub(r"\)\s*!\s*", ")", line_clean)
+        line_clean = re.sub(r"\)\s*\?\?\s*[a-zA-Z0-9_\"\']+", ")", line_clean)
+
+
         # Convert func: func name(_ param: Type) -> RetType {
         func_match = re.search(r"\bfunc\s+([a-zA-Z0-9_]+)\((.*?)\)", line_clean)
         if func_match:
