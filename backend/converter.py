@@ -201,24 +201,29 @@ def convert_offline_fallback(python_code: str, target_language: str) -> str:
             if inner.startswith("f\"") or inner.startswith("f'"):
                 raw_str = inner[2:-1]
                 if lang_key == "java":
-                    java_str = re.sub(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", r'" + (\1) + "', raw_str)
+                    raw_str = re.sub(r"int\(([a-zA-Z0-9_]+)\)", r"Integer.parseInt(\1)", raw_str)
+                    java_str = re.sub(r"\{([^}]+)\}", r'" + (\1) + "', raw_str)
                     current_lines.append(f'{raw_indent}System.out.println("{java_str}");')
                 elif lang_key == "cpp":
-                    cpp_parts = re.split(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", raw_str)
+                    raw_str = re.sub(r"int\(([a-zA-Z0-9_]+)\)", r"std::stoi(\1)", raw_str)
+                    cpp_parts = re.split(r"\{([^}]+)\}", raw_str)
                     cpp_str = " << ".join([f'"{p}"' if idx % 2 == 0 else f'({p})' for idx, p in enumerate(cpp_parts) if p])
                     current_lines.append(f'{raw_indent}std::cout << {cpp_str} << std::endl;')
                 elif lang_key in ["c", "embedded_c"]:
+                    raw_str = re.sub(r"int\(([a-zA-Z0-9_]+)\)", r"atoi(\1)", raw_str)
                     fmt_spec = "%s" if any(v in raw_str for v in ["n", "str", "name", "text", "val", "input", "line"]) else "%d"
-                    c_str = re.sub(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", fmt_spec, raw_str)
-                    vars_found = re.findall(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", raw_str)
+                    c_str = re.sub(r"\{([^}]+)\}", fmt_spec, raw_str)
+                    vars_found = re.findall(r"\{([^}]+)\}", raw_str)
                     vars_str = ", ".join(vars_found)
                     vars_prefix = f", {vars_str}" if vars_str else ""
                     current_lines.append(f'{raw_indent}printf("{c_str}\\n"{vars_prefix});')
-
                 elif lang_key == "swift":
-                    swift_str = re.sub(r"\{([a-zA-Z0-9_\+\-\*\/\s\[\]]+)\}", r"\\(\1)", raw_str)
+                    raw_str = re.sub(r"int\(([a-zA-Z0-9_]+)\)", r"(Int(\1) ?? 0)", raw_str)
+                    swift_str = re.sub(r"\{([^}]+)\}", r"\\(\1)", raw_str)
                     current_lines.append(f'{raw_indent}print("{swift_str}")')
                 continue
+
+
             else:
                 if lang_key == "java":
                     current_lines.append(f'{raw_indent}System.out.println({inner});')
