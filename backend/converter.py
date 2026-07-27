@@ -483,7 +483,7 @@ async def convert_with_gemini(python_code: str, target_language: str, api_key: s
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
-        for model in ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]:
+        for model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"]:
             try:
                 response = client.models.generate_content(
                     model=model,
@@ -505,7 +505,7 @@ async def convert_with_gemini(python_code: str, target_language: str, api_key: s
     try:
         import google.generativeai as genai
         genai.configure(api_key=api_key)
-        for model_name in ["gemini-1.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-pro"]:
+        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
             try:
                 model = genai.GenerativeModel(
                     model_name=model_name,
@@ -549,9 +549,10 @@ async def convert_code(
     provider_used = "Offline Morpher"
     converted_code = None
 
-    gemini_key = custom_api_key or settings.GEMINI_API_KEY
-    openrouter_key = custom_api_key or settings.OPENROUTER_API_KEY
-    groq_key = custom_api_key or settings.GROQ_API_KEY
+    user_key_clean = (custom_api_key.strip() if custom_api_key and custom_api_key.strip() and custom_api_key.strip() != "null" else None)
+    gemini_key = user_key_clean or settings.GEMINI_API_KEY
+    openrouter_key = user_key_clean or settings.OPENROUTER_API_KEY
+    groq_key = user_key_clean or settings.GROQ_API_KEY
 
     selected_provider = (provider or "auto").lower().strip()
 
@@ -575,6 +576,7 @@ async def convert_code(
             converted_code = await convert_with_gemini(python_code, target_language, gemini_key)
             if converted_code:
                 provider_used = "Google Gemini AI"
+
         
         if not converted_code:
             converted_code = convert_with_openrouter(python_code, target_language, openrouter_key)
