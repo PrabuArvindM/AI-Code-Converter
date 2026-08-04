@@ -39,3 +39,8 @@ uploads/*
 !uploads/.gitkeep
 outputs/*
 !outputs/.gitkeep
+
+# GCP SDK & Local Installers
+google-cloud-sdk/
+*.tar.gz
+
